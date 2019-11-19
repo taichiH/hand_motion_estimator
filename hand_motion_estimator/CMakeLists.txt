@@ -19,7 +19,6 @@ find_package(catkin REQUIRED COMPONENTS
 find_package(OpenCV REQUIRED)
 
 include_directories(
-  include
   ${catkin_INCLUDE_DIRS}
   ${OpenCV_INCLUDE_DIRS})
 
@@ -28,5 +27,4 @@ add_definitions(-std=c++11)
 catkin_package(
   CATKIN_DEPENDS
   LIBRARIES ${PROJECT_NAME}
-  INCLUDE_DIRS include
 )
