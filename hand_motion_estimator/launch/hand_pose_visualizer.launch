@@ -9,7 +9,7 @@
   <arg name="hand_pose"
        default="/ssd_hand_detector/people_pose_estimation_2d_hand/pose" />
   <arg name="input_cloud"
-       default="/remote/point_cloud/cloud_registered/remote" />
+       default="/aeroa_remote/point_cloud/cloud_registered/remote" />
 
   <arg name="ksize" value="3" />
   <arg name="extract_joint" value="RHand3" />
@@ -31,9 +31,9 @@
   <node name="mask_image_to_point_indices"
         pkg="nodelet" type="nodelet"
         args="standalone jsk_pcl_utils/MaskImageToPointIndices">
-    <remap from="~input" to="hand_pose_visualizer/output/mask"/>
+    <remap from="~input" to="/hand_pose_visualizer/output/mask"/>
     <rosparam>
-      use_multi_channels: true
+      use_multi_channels: false
     </rosparam>
   </node>
 
