@@ -74,7 +74,7 @@ class HandPoseVisualizer():
         debug_img_msg = self.cv_bridge.cv2_to_imgmsg(debug_image, 'bgr8')
         debug_img_msg.header = rgb_msg.header
         self.debug_img_pub.publish(debug_img_msg)
-        mask_msg = self.cv_bridge.cv2_to_imgmsg(mask, 'passthrough')
+        mask_msg = self.cv_bridge.cv2_to_imgmsg(mask, 'mono8')
         mask_msg.header = rgb_msg.header
         self.mask_img_pub.publish(mask_msg)
 

@@ -8,6 +8,8 @@
        default="/openni_camera/rgb/camera_info" />
   <arg name="hand_pose"
        default="/ssd_hand_detector/people_pose_estimation_2d_hand/pose" />
+  <arg name="input_cloud"
+       default="/remote/point_cloud/cloud_registered/remote" />
 
   <arg name="ksize" value="3" />
   <arg name="extract_joint" value="RHand3" />
@@ -23,6 +25,36 @@
       approximate_sync: true
       ksize: $(arg ksize)
       extract_joint: $(arg extract_joint)
+    </rosparam>
+  </node>
+
+  <node name="mask_image_to_point_indices"
+        pkg="nodelet" type="nodelet"
+        args="standalone jsk_pcl_utils/MaskImageToPointIndices">
+    <remap from="~input" to="hand_pose_visualizer/output/mask"/>
+    <rosparam>
+      use_multi_channels: true
+    </rosparam>
+  </node>
+
+  <node name="point_indices_to_cluster_point_indices"
+        pkg="jsk_pcl_ros_utils" type="point_indices_to_cluster_point_indices">
+    <remap from="~input" to="mask_image_to_point_indices/output" />
+  </node>
+  
+  <node name="hand_cluster_point_indices_decomposer"
+        pkg="nodelet" type="nodelet"
+        args="standalone jsk_pcl/ClusterPointIndicesDecomposer">
+    <remap from="~input" to="$(arg input_cloud)" />
+    <remap from="~target" to="point_indices_to_cluster_point_indices/output" />
+    <rosparam>
+      align_boxes: false
+      align_boxes_with_plane: false
+      approximate_sync: true
+      queue_size: 100
+      target_frame_id: base_link
+      sort_by: input_indices
+      use_pca: true
     </rosparam>
   </node>
 
