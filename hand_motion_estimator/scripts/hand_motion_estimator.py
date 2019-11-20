@@ -3,16 +3,16 @@
 import os
 import csv
 import math
-import numpy as np
 from enum import Enum
 
+import numpy as np
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.neural_network import MLPClassifier
 from sklearn.decomposition import PCA
-
-import rospkg
+import matplotlib.pyplot as plt
 
 import rospy
+import rospkg
 from jsk_recognition_msgs.msg import BoundingBoxArray, BoundingBox
 
 class HandMotionEstimator():
@@ -116,21 +116,22 @@ class HandMotionEstimator():
             return self.state.buffered
 
     def make_histogram(self):
-        self.histogram = [0 for i in range(self.bin_size)]
+        hist = [0 for i in range(self.bin_size)]
         for angle in self.angle_buf:
             idx = int(math.floor(angle / 10.))
-            self.histogram[idx] += 1
+            hist[idx] += 1
+        self.histogram = np.array(hist) / float(np.array(hist).max())
 
     def classify_motion(self, target_data):
         if self.classifier is None:
             return None
 
-        print('target_data', target_data)
         motion_class = self.classifier.predict(np.array([target_data]))
         motion_class = int(motion_class[0])
         return self.motion_lst[motion_class]
 
     def callback(self, boxes_msg):
+        print(boxes_msg.header.stamp)
         if len(boxes_msg.boxes) > 1:
             rospy.logwarn('this node requre input boxes size is 1')
             return
@@ -159,6 +160,11 @@ class HandMotionEstimator():
         self.make_histogram()
         motion = self.classify_motion(self.histogram)
         print(motion)
+
+        vis_hist = np.array(self.histogram)
+        plt.cla()
+        plt.bar([i for i in range(vis_hist.shape[0])], vis_hist)
+        plt.pause(.001)
 
 if __name__=='__main__':
     rospy.init_node('hand_motion_estimator')
