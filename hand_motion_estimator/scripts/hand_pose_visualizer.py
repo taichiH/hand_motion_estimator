@@ -51,11 +51,12 @@ class HandPoseVisualizer():
 
         mask = np.zeros((rgb_image.shape[0], rgb_image.shape[1]), dtype=np.uint8)
 
-        if len(hand_pose_msg.poses):
+        if len(hand_pose_msg.poses) == 0:
+            print('no hand detected')
             return
 
         # left and right hand
-        for people_pose in hand_pose_msg.poses:
+        for people_pose in zip(hand_pose_msg.poses):
             poses = people_pose[0].poses
             limbs = people_pose[0].limb_names
 
