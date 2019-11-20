@@ -1,7 +1,10 @@
 <launch>
 
   <arg name="hand_pose_box" default="hand_cluster_point_indices_decomposer/boxes" />
-  <arg name="angle_buf_size" default="15" />
+  <arg name="angle_buf_size" default="7" />
+  <arg name="chunk_size" default="4" />
+  <arg name="movement_thresh" default="10" doc="[mm]" />
+  <arg name="model" default="mlp" doc="{mlp, random_forest}" />
 
   <node name="hand_motion_estimator"
         pkg="hand_motion_estimator" type="hand_motion_estimator.py"
@@ -9,6 +12,9 @@
     <remap from="~input/hand_pose_box" to="$(arg hand_pose_box)" />
     <rosparam subst_value="true">
       angle_buf_size: $(arg angle_buf_size)
+      chunk_size: $(arg chunk_size)
+      movement_thresh: $(arg movement_thresh)
+      model: $(arg model)
     </rosparam>
   </node>
 

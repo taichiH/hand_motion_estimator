@@ -18,11 +18,13 @@ from jsk_recognition_msgs.msg import BoundingBoxArray, BoundingBox
 class HandMotionEstimator():
 
     def __init__(self):
+        self.toggle = 1
         self.state = Enum('state', 'buffered not_buffered isnan')
 
         self.chunk_size = rospy.get_param('~chunk_size', 3)
         self.angle_buf_size = rospy.get_param('~angle_buf_size', 10)
         self.bin_size = rospy.get_param('~bin_size', 18)
+        self.movement_thresh = rospy.get_param('~movement_thresh', 10)
         self.histogram = [0 for i in range(self.bin_size)]
 
         self.flow_chunk = []
@@ -42,6 +44,7 @@ class HandMotionEstimator():
         self.classifier = None
         rospy.loginfo('data_path: %s' %(self.data_path))
         self.generate_model(self.data_path)
+
 
         rospy.Subscriber(
             "~input/hand_pose_box", BoundingBoxArray, self.callback)
@@ -131,7 +134,6 @@ class HandMotionEstimator():
         return self.motion_lst[motion_class]
 
     def callback(self, boxes_msg):
-        print(boxes_msg.header.stamp)
         if len(boxes_msg.boxes) > 1:
             rospy.logwarn('this node requre input boxes size is 1')
             return
@@ -146,6 +148,13 @@ class HandMotionEstimator():
             return
 
         pca_vec = self.calc_pca()
+        flow_movement = 1000 * np.linalg.norm(
+            self.flow_chunk[-1] - self.flow_chunk[0])
+
+        if flow_movement < self.movement_thresh:
+            return
+
+        print('flow_movement: ', flow_movement)
         if self.make_vec_pair(pca_vec) == self.state.not_buffered:
             rospy.loginfo('vec_pair state: %s' %(self.state.not_buffered.name))
             return
@@ -159,7 +168,6 @@ class HandMotionEstimator():
 
         self.make_histogram()
         motion = self.classify_motion(self.histogram)
-        print(motion)
 
         vis_hist = np.array(self.histogram)
         plt.cla()
