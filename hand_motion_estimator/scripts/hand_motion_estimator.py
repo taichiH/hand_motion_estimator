@@ -6,6 +6,10 @@ import math
 from enum import Enum
 
 import numpy as np
+from scipy import interpolate
+from scipy.stats import norm
+import scipy.spatial.distance as dist
+
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.neural_network import MLPClassifier
 from sklearn.decomposition import PCA
@@ -25,18 +29,20 @@ class HandMotionEstimator():
         self.toggle = 1
         self.state = Enum('state', 'buffered not_buffered isnan')
 
-        self.chunk_size = rospy.get_param('~chunk_size', 3)
-        self.angle_buf_size = rospy.get_param('~angle_buf_size', 10)
+        self.chunk_size = rospy.get_param('~chunk_size', 5)
         self.bin_size = rospy.get_param('~bin_size', 18)
         self.movement_thresh = rospy.get_param('~movement_thresh', 15)
+        self.use_pca = rospy.get_param('~use_pca', False)
+        self.pca_frame = rospy.get_param('~pca_frame', 4)
+        self.interpolation_scale = rospy.get_param('~interpolation_scale', 2)
+
         self.histogram = [0 for i in range(self.bin_size)]
 
         self.flow_chunk = []
         self.vec_pair = []
-        self.angle_buf = []
 
         self.pca = PCA()
-        self.base_axis = np.array([1,0,0])
+        self.base_axis = np.array([0,0,1])
 
         self.motion_lst = ['rot', 'trans', 'other']
         self.data_path = rospy.get_param(
@@ -47,11 +53,13 @@ class HandMotionEstimator():
         self.model = rospy.get_param('~model', 'mlp')
         self.classifier = None
         rospy.loginfo('data_path: %s' %(self.data_path))
-        self.generate_model(self.data_path)
+        # self.generate_model(self.data_path)
 
         self.cv_bridge = CvBridge()
-        self.pub_image = rospy.Publisher(
-            "~output/image", Image, queue_size=1)
+        self.pub_histogram_image = rospy.Publisher(
+            "~output/histogram_image", Image, queue_size=1)
+        self.pub_cross_histogram_image = rospy.Publisher(
+            "~output/cross_histogram_image", Image, queue_size=1)
 
         rospy.Service(
             "~save_histogram", GetHistogram, self.service_callback)
@@ -85,55 +93,76 @@ class HandMotionEstimator():
         self.classifier.fit(np.array(test_data), np.array(trained_data))
 
 
+    def calc_pca(self, chunk):
+        self.pca.fit(np.array(chunk))
+        pca_vec = self.pca.components_[0]
+        return np.array(pca_vec)
+
+    def spline_interpolate(self, flow_chunk):
+        x_sample = flow_chunk.T[0]
+        y_sample = flow_chunk.T[1]
+        z_sample = flow_chunk.T[2]
+
+        num_true_pts = len(x_sample) * self.interpolation_scale
+        tck, u = interpolate.splprep([x_sample,y_sample,z_sample], s=2, k=3)
+        x_knots, y_knots, z_knots = interpolate.splev(tck[0], tck)
+        u_fine = np.linspace(0,1,num_true_pts)
+        x_fine, y_fine, z_fine = interpolate.splev(u_fine, tck)
+        interpolated_chunk = np.array([x_fine, y_fine, z_fine]).T
+
+        return list(interpolated_chunk)
+
     def make_flow_chunk(self, pos):
-        if len(self.flow_chunk) < self.chunk_size:
+        if len(self.flow_chunk) <= self.chunk_size:
             self.flow_chunk.append(pos)
-            # 0 means waiting next position to buffer positions
             return self.state.not_buffered
         else:
             self.flow_chunk.pop(0)
             self.flow_chunk.append(pos)
-            # 1 means done buffer positions
-            return self.state.buffered
+            interpolated_chunk = self.spline_interpolate(np.array(self.flow_chunk))
 
-    def calc_pca(self):
-        self.pca.fit(np.array(self.flow_chunk))
-        pca_vec = self.pca.components_[0]
-        return np.array(pca_vec)
+            return interpolated_chunk
 
-    def make_vec_pair(self, vec):
-        if len(self.vec_pair) < 2:
-            self.vec_pair.append(vec)
-            return self.state.not_buffered
+    def make_angle_buffer(self, chunk, cross_hist):
+        print('---')
+        angle_buf = []
+
+        if self.use_pca:
+            self.pca_frame = 4
         else:
-            self.vec_pair.pop(0)
-            self.vec_pair.append(vec)
-            return self.state.buffered
+            self.pca_frame = 0
+        for i in range(2 + self.pca_frame, len(chunk)):
+            if self.use_pca:
+                vec1 = self.calc_pca(chunk[i-1-self.pca_frame:i-1])
+                vec2 = self.calc_pca(chunk[i-self.pca_frame:i])
+            else:
+                vec1 = chunk[i-1] - chunk[i-2]
+                vec2 = chunk[i]   - chunk[i-1]
 
-    def make_angle_buffer(self):
-        cross = np.cross(self.vec_pair[0], self.vec_pair[1])
-        dot = np.dot(self.base_axis, cross)
-        angle = np.arccos(
-            dot / (np.linalg.norm(cross) * np.linalg.norm(self.base_axis)))
-        angle = np.rad2deg(angle)
+            cross = None
+            if cross_hist:
+                cross = np.cross(vec1, vec2)
+            else:
+                cross = vec1
 
-        if np.isnan(angle):
-            return self.state.isnan
+            dot = np.dot(self.base_axis, cross)
+            angle = np.arccos(
+                dot / (np.linalg.norm(cross) * np.linalg.norm(self.base_axis)))
+            angle = np.rad2deg(angle)
 
-        if len(self.angle_buf) < self.angle_buf_size:
-            self.angle_buf.append(angle)
-            return self.state.not_buffered
-        else:
-            self.angle_buf.pop(0)
-            self.angle_buf.append(angle)
-            return self.state.buffered
+            if np.isnan(angle):
+                continue
+            angle_buf.append(angle)
 
-    def make_histogram(self):
+        return angle_buf
+
+    def make_histogram(self, angle_buf):
         hist = [0 for i in range(self.bin_size)]
-        for angle in self.angle_buf:
+        for angle in angle_buf:
             idx = int(math.floor(angle / 10.))
             hist[idx] += 1
-        self.histogram = np.array(hist) / float(np.array(hist).max())
+        histogram = np.array(hist) / float(np.array(hist).max())
+        return histogram
 
     def classify_motion(self, target_data):
         if self.classifier is None:
@@ -168,56 +197,76 @@ class HandMotionEstimator():
                         finger_box.pose.position.y,
                         finger_box.pose.position.z])
 
-        if self.make_flow_chunk(pos) == self.state.not_buffered:
-            rospy.loginfo('flow_chunk state: %s' %(self.state.not_buffered.name))
+        interpolated_chunk = self.make_flow_chunk(pos)
+        if interpolated_chunk == self.state.not_buffered:
+            rospy.loginfo('flow_chunk: %s' %(self.state.not_buffered.name))
             return
 
-        pca_vec = self.calc_pca()
-        flow_movement = 1000 * np.linalg.norm(
-            self.flow_chunk[-1] - self.flow_chunk[0])
-
-        if flow_movement < self.movement_thresh:
+        movement = np.linalg.norm(interpolated_chunk[0] - interpolated_chunk[-1]) * 1000
+        print(movement)
+        if movement < self.movement_thresh:
+            self.flow_chunk = []
             return
 
-        if self.make_vec_pair(pca_vec) == self.state.not_buffered:
-            rospy.loginfo('vec_pair state: %s' %(self.state.not_buffered.name))
-            return
+        angle_buf = self.make_angle_buffer(interpolated_chunk, False)
+        cross_angle_buf = self.make_angle_buffer(interpolated_chunk, True)
 
-        if self.make_angle_buffer() == self.state.not_buffered:
-            rospy.loginfo('angle_buf state: %s' %(self.state.not_buffered.name))
-            return
-        elif self.make_angle_buffer() == self.state.isnan:
-            rospy.logwarn('angle_buf state: %s' %(self.state.isnan.name))
-            return
+        histogram = self.make_histogram(angle_buf)
+        cross_histogram = self.make_histogram(cross_angle_buf)
 
-        self.make_histogram()
+        # motion = self.classify_motion(self.histogram)
 
-        # print(flow_movement)
-        # print(self.histogram)
+        x = np.arange(0, len(histogram), 1)
+        y = norm.pdf(x, int(len(histogram) / 2), 1)
 
-        motion = self.classify_motion(self.histogram)
+        hist_dist = dist.mahalanobis(
+            y, np.array(histogram), np.eye(len(histogram)))
+        cross_hist_dist = dist.mahalanobis(
+            y, np.array(cross_histogram), np.eye(len(histogram)))
 
-        print('motion: %s' %(motion))
+        if hist_dist < cross_hist_dist:
+            print('motion: trans')
+        else:
+            print('motion: rot')
 
-        vis_hist = np.array(self.histogram)
+        # histogram vis
         plt.cla()
-        plt.bar([i for i in range(vis_hist.shape[0])], vis_hist)
+        plt.title("normal histogram")
+        plt.bar([i for i in range(np.array(histogram).shape[0])], np.array(histogram))
         fig = plt.gcf()
         fig.canvas.draw()
         w, h = fig.canvas.get_width_height()
-        img = np.fromstring(fig.canvas.tostring_rgb(), dtype=np.uint8)
+        histogram_img = np.fromstring(fig.canvas.tostring_rgb(), dtype=np.uint8)
         fig.clf()
-        img.shape = (h, w, 3)
+        histogram_img.shape = (h, w, 3)
+        plt.close()
+        
+        # cross histogram vis
+        plt.cla()
+        plt.title("cross histogram")
+        plt.bar([i for i in range(np.array(cross_histogram).shape[0])],
+                np.array(cross_histogram))
+        fig = plt.gcf()
+        fig.canvas.draw()
+        w, h = fig.canvas.get_width_height()
+        cross_histogram_img = np.fromstring(fig.canvas.tostring_rgb(), dtype=np.uint8)
+        fig.clf()
+        cross_histogram_img.shape = (h, w, 3)
         plt.close()
 
         try:
-            msg = self.cv_bridge.cv2_to_imgmsg(img, "rgb8")
+            histogram_msg = self.cv_bridge.cv2_to_imgmsg(histogram_img, "rgb8")
+            cross_histogram_msg = self.cv_bridge.cv2_to_imgmsg(
+                cross_histogram_img, "rgb8")
         except Exception as e:
             rospy.logerr("Failed to convert bbox image: %s" % str(e))
             return
-        msg.header = boxes_msg.header
-        self.pub_image.publish(msg)
 
+        histogram_msg.header = boxes_msg.header
+        self.pub_histogram_image.publish(histogram_msg)
+
+        cross_histogram_msg.header = boxes_msg.header
+        self.pub_cross_histogram_image.publish(cross_histogram_msg)
 
 if __name__=='__main__':
     rospy.init_node('hand_motion_estimator')

@@ -3,8 +3,11 @@
   <arg name="hand_pose_box" default="hand_cluster_point_indices_decomposer/boxes" />
   <arg name="angle_buf_size" default="7" />
   <arg name="chunk_size" default="4" />
-  <arg name="movement_thresh" default="10" doc="[mm]" />
+  <arg name="use_pca" default="false" />
+  <arg name="pca_frame" default="4" />
+  <arg name="movement_thresh" default="15" doc="[mm]" />
   <arg name="model" default="mlp" doc="{mlp, random_forest}" />
+  <arg name="interpolation_scale" default="3" />
 
   <node name="hand_motion_estimator"
         pkg="hand_motion_estimator" type="hand_motion_estimator.py"
@@ -15,6 +18,9 @@
       chunk_size: $(arg chunk_size)
       movement_thresh: $(arg movement_thresh)
       model: $(arg model)
+      use_pca: $(arg use_pca)
+      pca_frame: $(arg pca_frame)
+      interpolation_scale: $(arg interpolation_scale)
     </rosparam>
   </node>
 

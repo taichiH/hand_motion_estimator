@@ -1,0 +1,4 @@
+uint32 label
+---
+bool success
+float64[] histogram

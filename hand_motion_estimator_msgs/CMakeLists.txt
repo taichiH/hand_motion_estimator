@@ -13,6 +13,10 @@ add_message_files(
   FILES
   Motion.msg
   )
+add_service_files(
+  FILES
+  GetHistogram.srv
+  )
 
 generate_messages(
   DEPENDENCIES
