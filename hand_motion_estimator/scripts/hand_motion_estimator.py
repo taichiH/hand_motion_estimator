@@ -16,6 +16,8 @@ import rospkg
 from cv_bridge import CvBridge
 from jsk_recognition_msgs.msg import BoundingBoxArray, BoundingBox
 from sensor_msgs.msg import Image
+from hand_motion_estimator_msgs.msg import Motion
+from hand_motion_estimator_msgs.srv import GetHistogram, GetHistogramResponse
 
 class HandMotionEstimator():
 
@@ -26,7 +28,7 @@ class HandMotionEstimator():
         self.chunk_size = rospy.get_param('~chunk_size', 3)
         self.angle_buf_size = rospy.get_param('~angle_buf_size', 10)
         self.bin_size = rospy.get_param('~bin_size', 18)
-        self.movement_thresh = rospy.get_param('~movement_thresh', 10)
+        self.movement_thresh = rospy.get_param('~movement_thresh', 15)
         self.histogram = [0 for i in range(self.bin_size)]
 
         self.flow_chunk = []
@@ -50,6 +52,9 @@ class HandMotionEstimator():
         self.cv_bridge = CvBridge()
         self.pub_image = rospy.Publisher(
             "~output/image", Image, queue_size=1)
+
+        rospy.Service(
+            "~save_histogram", GetHistogram, self.service_callback)
 
         rospy.Subscriber(
             "~input/hand_pose_box", BoundingBoxArray, self.callback)
@@ -138,7 +143,22 @@ class HandMotionEstimator():
         motion_class = int(motion_class[0])
         return self.motion_lst[motion_class]
 
+    def service_callback(self, req):
+        res = GetHistogramResponse()
+
+        save_data =  [req.label]  + list(self.histogram)
+        print('save_data', save_data)
+
+        with open(self.data_path, 'a') as f:
+            writer = csv.writer(f)
+            writer.writerow(save_data)
+
+        res.success = True
+        res.histogram = self.histogram
+        return res
+
     def callback(self, boxes_msg):
+
         if len(boxes_msg.boxes) > 1:
             rospy.logwarn('this node requre input boxes size is 1')
             return
@@ -159,7 +179,6 @@ class HandMotionEstimator():
         if flow_movement < self.movement_thresh:
             return
 
-        print('flow_movement: ', flow_movement)
         if self.make_vec_pair(pca_vec) == self.state.not_buffered:
             rospy.loginfo('vec_pair state: %s' %(self.state.not_buffered.name))
             return
@@ -172,13 +191,17 @@ class HandMotionEstimator():
             return
 
         self.make_histogram()
+
+        # print(flow_movement)
+        # print(self.histogram)
+
         motion = self.classify_motion(self.histogram)
 
-        vis_hist = np.array(self.histogram)
+        print('motion: %s' %(motion))
 
+        vis_hist = np.array(self.histogram)
         plt.cla()
         plt.bar([i for i in range(vis_hist.shape[0])], vis_hist)
-
         fig = plt.gcf()
         fig.canvas.draw()
         w, h = fig.canvas.get_width_height()
