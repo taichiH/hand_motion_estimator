@@ -19,6 +19,7 @@ import rospy
 import rospkg
 from cv_bridge import CvBridge
 from jsk_recognition_msgs.msg import BoundingBoxArray, BoundingBox
+from jsk_rviz_plugins.msg import OverlayText
 from sensor_msgs.msg import Image
 from hand_motion_estimator_msgs.msg import Motion
 from hand_motion_estimator_msgs.srv import GetHistogram, GetHistogramResponse
@@ -60,6 +61,8 @@ class HandMotionEstimator():
             "~output/histogram_image", Image, queue_size=1)
         self.pub_cross_histogram_image = rospy.Publisher(
             "~output/cross_histogram_image", Image, queue_size=1)
+        self.pub_overlay_text = rospy.Publisher(
+            "~output/overlay_text", OverlayText, queue_size=1)
 
         rospy.Service(
             "~save_histogram", GetHistogram, self.service_callback)
@@ -224,10 +227,20 @@ class HandMotionEstimator():
         cross_hist_dist = dist.mahalanobis(
             y, np.array(cross_histogram), np.eye(len(histogram)))
 
+        motion = ''
         if hist_dist < cross_hist_dist:
+            motion = 'trans'
             print('motion: trans')
         else:
+            motion = 'rot'
             print('motion: rot')
+
+        text_msg = OverlayText()
+        text_msg.text = motion
+        text_msg.text_size = 15
+        text_msg.font = "DejaVu Sans Mono"
+        text_msg.line_width = 1
+        self.pub_overlay_text.publish(text_msg)
 
         # histogram vis
         plt.cla()
