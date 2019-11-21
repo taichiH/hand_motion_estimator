@@ -13,7 +13,9 @@ import matplotlib.pyplot as plt
 
 import rospy
 import rospkg
+from cv_bridge import CvBridge
 from jsk_recognition_msgs.msg import BoundingBoxArray, BoundingBox
+from sensor_msgs.msg import Image
 
 class HandMotionEstimator():
 
@@ -45,6 +47,9 @@ class HandMotionEstimator():
         rospy.loginfo('data_path: %s' %(self.data_path))
         self.generate_model(self.data_path)
 
+        self.cv_bridge = CvBridge()
+        self.pub_image = rospy.Publisher(
+            "~output/image", Image, queue_size=1)
 
         rospy.Subscriber(
             "~input/hand_pose_box", BoundingBoxArray, self.callback)
@@ -170,9 +175,26 @@ class HandMotionEstimator():
         motion = self.classify_motion(self.histogram)
 
         vis_hist = np.array(self.histogram)
+
         plt.cla()
         plt.bar([i for i in range(vis_hist.shape[0])], vis_hist)
-        plt.pause(.001)
+
+        fig = plt.gcf()
+        fig.canvas.draw()
+        w, h = fig.canvas.get_width_height()
+        img = np.fromstring(fig.canvas.tostring_rgb(), dtype=np.uint8)
+        fig.clf()
+        img.shape = (h, w, 3)
+        plt.close()
+
+        try:
+            msg = self.cv_bridge.cv2_to_imgmsg(img, "rgb8")
+        except Exception as e:
+            rospy.logerr("Failed to convert bbox image: %s" % str(e))
+            return
+        msg.header = boxes_msg.header
+        self.pub_image.publish(msg)
+
 
 if __name__=='__main__':
     rospy.init_node('hand_motion_estimator')
