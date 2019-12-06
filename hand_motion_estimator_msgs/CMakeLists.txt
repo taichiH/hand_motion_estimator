@@ -12,6 +12,7 @@ find_package(catkin REQUIRED COMPONENTS
 add_message_files(
   FILES
   Motion.msg
+  Interruption.msg
   )
 add_service_files(
   FILES
