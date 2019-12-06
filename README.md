@@ -22,7 +22,19 @@ roscd hand_motion_estimator/sample/data
 jsk_data get translation.bag
 ```
 
-launch sample
+### simple sample launch
 ```
 roslaunch hand_motion_estimator sample_hand_motion_estimator.launch
+```
+
+### combination of object detection and hand motion estimation
+you must install `neatness_estimator` (https://github.com/taichiH/neatness_estimator).
+```
+git clone https://github.com/taichiH/neatness_estimator
+catkin build neatness_estimator
+```
+
+sample launch
+```
+roslaunch hand_motion_estimator sample_hand_motion_estimator.launch interruption_check:=true
 ```
