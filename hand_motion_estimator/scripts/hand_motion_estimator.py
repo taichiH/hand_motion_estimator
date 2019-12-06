@@ -23,12 +23,20 @@ from jsk_rviz_plugins.msg import OverlayText
 from sensor_msgs.msg import Image
 from hand_motion_estimator_msgs.msg import Motion
 from hand_motion_estimator_msgs.srv import GetHistogram, GetHistogramResponse
+from std_msgs.msg import Float32
 
 class HandMotionEstimator():
 
     def __init__(self):
         self.toggle = 1
+        self.motion_labels = ['rot', 'trans', 'nonmove']
+
         self.state = Enum('state', 'buffered not_buffered isnan')
+        self.move_state = Enum('move_state', 'move nonmove')
+        self.prev_move_state = self.move_state.nonmove
+        self.motions_count = {self.motion_labels[0] : 0,
+                              self.motion_labels[1] : 0,
+                              self.motion_labels[2] : 0}
 
         self.chunk_size = rospy.get_param('~chunk_size', 5)
         self.bin_size = rospy.get_param('~bin_size', 18)
@@ -63,6 +71,8 @@ class HandMotionEstimator():
             "~output/cross_histogram_image", Image, queue_size=1)
         self.pub_overlay_text = rospy.Publisher(
             "~output/overlay_text", OverlayText, queue_size=1)
+        self.pub_movement = rospy.Publisher(
+            "~output/movement", Float32, queue_size=1)
 
         rospy.Service(
             "~save_histogram", GetHistogram, self.service_callback)
@@ -127,7 +137,6 @@ class HandMotionEstimator():
             return interpolated_chunk
 
     def make_angle_buffer(self, chunk, cross_hist):
-        print('---')
         angle_buf = []
 
         if self.use_pca:
@@ -190,6 +199,10 @@ class HandMotionEstimator():
         return res
 
     def callback(self, boxes_msg):
+        text_msg = OverlayText()
+        text_msg.text_size = 15
+        text_msg.font = "DejaVu Sans Mono"
+        text_msg.line_width = 1
 
         if len(boxes_msg.boxes) > 1:
             rospy.logwarn('this node requre input boxes size is 1')
@@ -202,84 +215,94 @@ class HandMotionEstimator():
 
         interpolated_chunk = self.make_flow_chunk(pos)
         if interpolated_chunk == self.state.not_buffered:
-            rospy.loginfo('flow_chunk: %s' %(self.state.not_buffered.name))
+            # rospy.loginfo('flow_chunk: %s' %(self.state.not_buffered.name))
             return
 
         movement = np.linalg.norm(interpolated_chunk[0] - interpolated_chunk[-1]) * 1000
-        print(movement)
-        if movement < self.movement_thresh:
-            self.flow_chunk = []
-            return
-
-        angle_buf = self.make_angle_buffer(interpolated_chunk, False)
-        cross_angle_buf = self.make_angle_buffer(interpolated_chunk, True)
-
-        histogram = self.make_histogram(angle_buf)
-        cross_histogram = self.make_histogram(cross_angle_buf)
-
-        # motion = self.classify_motion(self.histogram)
-
-        x = np.arange(0, len(histogram), 1)
-        y = norm.pdf(x, int(len(histogram) / 2), 1)
-
-        hist_dist = dist.mahalanobis(
-            y, np.array(histogram), np.eye(len(histogram)))
-        cross_hist_dist = dist.mahalanobis(
-            y, np.array(cross_histogram), np.eye(len(histogram)))
+        self.pub_movement.publish(data=movement)
 
         motion = ''
-        if hist_dist < cross_hist_dist:
-            motion = 'trans'
-            print('motion: trans')
+        if movement < self.movement_thresh:
+            move_state = self.move_state.nonmove
+            motion = 'nonmove'
+            self.flow_chunk = []
         else:
-            motion = 'rot'
-            print('motion: rot')
+            move_state = self.move_state.move
 
-        text_msg = OverlayText()
-        text_msg.text = motion
-        text_msg.text_size = 15
-        text_msg.font = "DejaVu Sans Mono"
-        text_msg.line_width = 1
+            angle_buf = self.make_angle_buffer(interpolated_chunk, False)
+            cross_angle_buf = self.make_angle_buffer(interpolated_chunk, True)
+            histogram = self.make_histogram(angle_buf)
+            cross_histogram = self.make_histogram(cross_angle_buf)
+            x = np.arange(0, len(histogram), 1)
+            y = norm.pdf(x, int(len(histogram) / 2), 1)
+            hist_dist = dist.mahalanobis(y, np.array(histogram), np.eye(len(histogram)))
+            cross_hist_dist = dist.mahalanobis(y, np.array(cross_histogram), np.eye(len(histogram)))
+
+            if hist_dist < cross_hist_dist:
+                motion = self.motion_labels[1]
+            else:
+                motion = self.motion_labels[0]
+
+            ##### visualize #####
+            plt.cla()
+            plt.title("normal histogram")
+            plt.bar([i for i in range(np.array(histogram).shape[0])], np.array(histogram))
+            fig = plt.gcf()
+            fig.canvas.draw()
+            w, h = fig.canvas.get_width_height()
+            histogram_img = np.fromstring(fig.canvas.tostring_rgb(), dtype=np.uint8)
+            fig.clf()
+            histogram_img.shape = (h, w, 3)
+            plt.close()
+
+            plt.cla()
+            plt.title("cross histogram")
+            plt.bar([i for i in range(np.array(cross_histogram).shape[0])],
+                    np.array(cross_histogram))
+            fig = plt.gcf()
+            fig.canvas.draw()
+            w, h = fig.canvas.get_width_height()
+            cross_histogram_img = np.fromstring(fig.canvas.tostring_rgb(), dtype=np.uint8)
+            fig.clf()
+            cross_histogram_img.shape = (h, w, 3)
+            plt.close()
+
+            try:
+                histogram_msg = self.cv_bridge.cv2_to_imgmsg(histogram_img, "rgb8")
+                cross_histogram_msg = self.cv_bridge.cv2_to_imgmsg(
+                    cross_histogram_img, "rgb8")
+            except Exception as e:
+                rospy.logerr("Failed to convert bbox image: %s" % str(e))
+                return
+
+            histogram_msg.header = boxes_msg.header
+            cross_histogram_msg.header = boxes_msg.header
+            self.pub_histogram_image.publish(histogram_msg)
+            self.pub_cross_histogram_image.publish(cross_histogram_msg)
+            ##### visualize #####
+
+        max_count = 0
+        segment_motion = ''
+        self.motions_count[motion] += 1
+        if self.prev_move_state == self.move_state.nonmove and \
+           move_state == self.move_state.move:
+            for label in self.motion_labels:
+                self.motions_count[label] = 0
+        elif self.prev_move_state == self.move_state.move and \
+             move_state == self.move_state.nonmove:
+            rospy.loginfo('---')
+            for label in self.motion_labels:
+                if self.motions_count[label] > max_count:
+                    max_count = self.motions_count[label]
+                    segment_motion = label
+                rospy.loginfo('%s: %d' %(label, self.motions_count[label]))
+                self.motions_count[label] = 0
+
+        text_msg.text = 'sequence motion: ' + motion + \
+                        ', movement: ' + str(movement) + \
+                        ', segment motion: ' + segment_motion
         self.pub_overlay_text.publish(text_msg)
-
-        # histogram vis
-        plt.cla()
-        plt.title("normal histogram")
-        plt.bar([i for i in range(np.array(histogram).shape[0])], np.array(histogram))
-        fig = plt.gcf()
-        fig.canvas.draw()
-        w, h = fig.canvas.get_width_height()
-        histogram_img = np.fromstring(fig.canvas.tostring_rgb(), dtype=np.uint8)
-        fig.clf()
-        histogram_img.shape = (h, w, 3)
-        plt.close()
-        
-        # cross histogram vis
-        plt.cla()
-        plt.title("cross histogram")
-        plt.bar([i for i in range(np.array(cross_histogram).shape[0])],
-                np.array(cross_histogram))
-        fig = plt.gcf()
-        fig.canvas.draw()
-        w, h = fig.canvas.get_width_height()
-        cross_histogram_img = np.fromstring(fig.canvas.tostring_rgb(), dtype=np.uint8)
-        fig.clf()
-        cross_histogram_img.shape = (h, w, 3)
-        plt.close()
-
-        try:
-            histogram_msg = self.cv_bridge.cv2_to_imgmsg(histogram_img, "rgb8")
-            cross_histogram_msg = self.cv_bridge.cv2_to_imgmsg(
-                cross_histogram_img, "rgb8")
-        except Exception as e:
-            rospy.logerr("Failed to convert bbox image: %s" % str(e))
-            return
-
-        histogram_msg.header = boxes_msg.header
-        self.pub_histogram_image.publish(histogram_msg)
-
-        cross_histogram_msg.header = boxes_msg.header
-        self.pub_cross_histogram_image.publish(cross_histogram_msg)
+        self.prev_move_state = move_state
 
 if __name__=='__main__':
     rospy.init_node('hand_motion_estimator')
