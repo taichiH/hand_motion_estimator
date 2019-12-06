@@ -304,8 +304,8 @@ class HandMotionEstimator():
             rospy.loginfo('last segment motion: %s' %(self.segment_motion))
 
         text_msg.text = 'sequence motion: ' + motion + \
-                        ', movement: ' + str(movement) + \
-                        ', last segment motion: ' + self.segment_motion
+                        '\nmovement: ' + str(movement) + \
+                        '\nlast segment motion: ' + self.segment_motion
         self.pub_overlay_text.publish(text_msg)
         self.prev_move_state = move_state
 
