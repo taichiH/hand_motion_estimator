@@ -1,5 +1,6 @@
 <launch>
-  <arg name="filename" default="$(find hand_motion_estimator)/sample/data/translation.bag" />
+  <arg name="rosbag_file" default="translation.bag" />
+  <arg name="filename" default="$(find hand_motion_estimator)/sample/data/$(arg rosbag_file)" />
   <arg name="ROBOT" default="AERO" />
   <arg name="options" value="--clock --loop" />
   <arg name="manager" value="camera_remote_nodelet_manager" />

@@ -31,12 +31,13 @@ class HandMotionEstimator():
         self.toggle = 1
         self.motion_labels = ['rot', 'trans', 'nonmove']
 
-        self.state = Enum('state', 'buffered not_buffered isnan')
+        self.state = Enum('state', 'buffered not_buffered isnan error')
         self.move_state = Enum('move_state', 'move nonmove')
         self.prev_move_state = self.move_state.nonmove
         self.motions_count = {self.motion_labels[0] : 0,
                               self.motion_labels[1] : 0,
                               self.motion_labels[2] : 0}
+        self.segment_motion = ''
 
         self.chunk_size = rospy.get_param('~chunk_size', 5)
         self.bin_size = rospy.get_param('~bin_size', 18)
@@ -116,12 +117,15 @@ class HandMotionEstimator():
         y_sample = flow_chunk.T[1]
         z_sample = flow_chunk.T[2]
 
-        num_true_pts = len(x_sample) * self.interpolation_scale
-        tck, u = interpolate.splprep([x_sample,y_sample,z_sample], s=2, k=3)
-        x_knots, y_knots, z_knots = interpolate.splev(tck[0], tck)
-        u_fine = np.linspace(0,1,num_true_pts)
-        x_fine, y_fine, z_fine = interpolate.splev(u_fine, tck)
-        interpolated_chunk = np.array([x_fine, y_fine, z_fine]).T
+        try:
+            num_true_pts = len(x_sample) * self.interpolation_scale
+            tck, u = interpolate.splprep([x_sample,y_sample,z_sample], s=2, k=3)
+            x_knots, y_knots, z_knots = interpolate.splev(tck[0], tck)
+            u_fine = np.linspace(0,1,num_true_pts)
+            x_fine, y_fine, z_fine = interpolate.splev(u_fine, tck)
+            interpolated_chunk = np.array([x_fine, y_fine, z_fine]).T
+        except:
+            return self.state.error
 
         return list(interpolated_chunk)
 
@@ -217,6 +221,9 @@ class HandMotionEstimator():
         if interpolated_chunk == self.state.not_buffered:
             # rospy.loginfo('flow_chunk: %s' %(self.state.not_buffered.name))
             return
+        elif interpolated_chunk == self.state.error:
+            rospy.logerr('failed calc spline')
+            return
 
         movement = np.linalg.norm(interpolated_chunk[0] - interpolated_chunk[-1]) * 1000
         self.pub_movement.publish(data=movement)
@@ -282,7 +289,6 @@ class HandMotionEstimator():
             ##### visualize #####
 
         max_count = 0
-        segment_motion = ''
         self.motions_count[motion] += 1
         if self.prev_move_state == self.move_state.nonmove and \
            move_state == self.move_state.move:
@@ -290,17 +296,16 @@ class HandMotionEstimator():
                 self.motions_count[label] = 0
         elif self.prev_move_state == self.move_state.move and \
              move_state == self.move_state.nonmove:
-            rospy.loginfo('---')
             for label in self.motion_labels:
                 if self.motions_count[label] > max_count:
                     max_count = self.motions_count[label]
-                    segment_motion = label
-                rospy.loginfo('%s: %d' %(label, self.motions_count[label]))
+                    self.segment_motion = label
                 self.motions_count[label] = 0
+            rospy.loginfo('last segment motion: %s' %(self.segment_motion))
 
         text_msg.text = 'sequence motion: ' + motion + \
                         ', movement: ' + str(movement) + \
-                        ', segment motion: ' + segment_motion
+                        ', last segment motion: ' + self.segment_motion
         self.pub_overlay_text.publish(text_msg)
         self.prev_move_state = move_state
 

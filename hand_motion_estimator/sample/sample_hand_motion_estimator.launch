@@ -1,6 +1,9 @@
 <launch>
+  <arg name="rosbag_file" default="translation.bag" />
 
-  <include file="$(find hand_motion_estimator)/sample/rosbag_play.launch" />
+  <include file="$(find hand_motion_estimator)/sample/rosbag_play.launch">
+    <arg name="rosbag_file" value="$(arg rosbag_file)" />
+  </include>
 
   <include file="$(find hand_motion_estimator)/launch/hand_pose_visualizer.launch" />
   <include file="$(find hand_motion_estimator)/launch/hand_motion_estimator.launch" />
