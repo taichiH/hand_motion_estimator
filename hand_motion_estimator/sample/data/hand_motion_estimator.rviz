@@ -196,17 +196,36 @@ Visualization Manager:
       top: 600
       width: 200
     - Class: jsk_rviz_plugin/BoundingBoxArray
-      Enabled: false
+      Enabled: true
       Name: BoundingBoxArray
       Topic: /labeled_bounding_box_publisher_aligned/output/labeled_instance_boxes
       Unreliable: false
-      Value: false
+      Value: true
       alpha: 1
       color: 25; 255; 0
       coloring: Label
       line width: 0.00499999989
       only edge: true
       show coords: false
+    - Align Bottom: false
+      Background Alpha: 0.800000012
+      Background Color: 0; 0; 0
+      Class: jsk_rviz_plugin/OverlayText
+      Enabled: true
+      Foreground Alpha: 0.800000012
+      Foreground Color: 25; 255; 240
+      Name: OverlayText
+      Overtake Color Properties: true
+      Overtake Position Properties: true
+      Topic: /hand_interruption_checker/output/overlay_text
+      Value: true
+      font: DejaVu Sans Mono
+      height: 30
+      left: 0
+      line width: 2
+      text size: 12
+      top: 200
+      width: 300
   Enabled: true
   Global Options:
     Background Color: 48; 48; 48
@@ -247,10 +266,10 @@ Visualization Manager:
       Invert Z Axis: false
       Name: Current View
       Near Clip Distance: 0.00999999978
-      Pitch: -1.39479649
+      Pitch: -1.39979649
       Target Frame: openni_camera_rgb_optical_frame
       Value: Orbit (rviz)
-      Yaw: 4.72358227
+      Yaw: 4.71358252
     Saved:
       - Class: rviz/Orbit
         Distance: 1.53095198

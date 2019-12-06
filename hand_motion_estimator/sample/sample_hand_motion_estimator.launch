@@ -1,5 +1,7 @@
 <launch>
   <arg name="rosbag_file" default="translation.bag" />
+  <arg name="interruption_check" default="false"
+       doc="neatness_estimator is required to use this mode"/>
 
   <include file="$(find hand_motion_estimator)/sample/rosbag_play.launch">
     <arg name="rosbag_file" value="$(arg rosbag_file)" />
@@ -12,5 +14,9 @@
         pkg="rviz" type="rviz"
         args="-d $(find hand_motion_estimator)/sample/data/hand_motion_estimator.rviz">
   </node>
+
+  <group if="$(arg interruption_check)">
+    <include file="$(find hand_motion_estimator)/sample/sample_object_recognizer.launch"/>
+  </group>
 
 </launch>
