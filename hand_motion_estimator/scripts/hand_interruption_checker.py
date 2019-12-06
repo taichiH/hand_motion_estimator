@@ -3,6 +3,7 @@ import numpy as np
 import rospy
 import message_filters
 
+from jsk_rviz_plugins.msg import OverlayText
 from jsk_recognition_msgs.msg import BoundingBox, BoundingBoxArray
 from hand_motion_estimator_msgs.msg import Interruption
 
@@ -13,6 +14,8 @@ class HandInterruptionChecker():
 
         self.interruption_pub = rospy.Publisher(
             '~output/interruption', Interruption, queue_size=1)
+        self.overlay_text_pub = rospy.Publisher(
+            "~output/overlay_text", OverlayText, queue_size=1)
 
         queue_size = rospy.get_param('~queue_size', 100)
         sub_hand_pose_boxes = message_filters.Subscriber(
@@ -68,6 +71,16 @@ class HandInterruptionChecker():
                 nearest_box_indedx = i
 
         is_interrupt = self.is_interrupt(object_boxes.boxes[i], pos)
+
+        text_msg = OverlayText()
+        text_msg.text_size = 15
+        text_msg.font = "DejaVu Sans Mono"
+        text_msg.line_width = 1
+        if is_interrupt:
+            text_msg.text = "interrupt"
+        else:
+            text_msg.text = "not interrupt"
+        self.overlay_text_pub.publish(text_msg)
 
         interruption_msg = Interruption()
         interruption_msg.header = hand_pose_boxes.header
