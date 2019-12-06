@@ -1,0 +1,13 @@
+<launch>
+
+  <include file="$(find hand_motion_estimator)/sample/rosbag_play.launch" />
+
+  <include file="$(find hand_motion_estimator)/launch/hand_pose_visualizer.launch" />
+  <include file="$(find hand_motion_estimator)/launch/hand_motion_estimator.launch" />
+
+  <node name="rviz"
+        pkg="rviz" type="rviz"
+        args="-d $(find hand_motion_estimator)/sample/data/hand_motion_estimator.rviz">
+  </node>
+
+</launch>

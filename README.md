@@ -13,4 +13,16 @@ jsk_recognition_msgs
 
 - output
   '~output/motion' (hand_motion_estimator_msgs/Motion)
-  
+
+
+## sample
+download rosbag data
+```
+roscd hand_motion_estimator/sample/data
+jsk_data get translation.bag
+```
+
+launch sample
+```
+roslaunch hand_motion_estimator sample_hand_motion_estimator.launch
+```
