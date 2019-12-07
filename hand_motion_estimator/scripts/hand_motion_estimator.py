@@ -23,6 +23,7 @@ from jsk_rviz_plugins.msg import OverlayText
 from sensor_msgs.msg import Image
 from hand_motion_estimator_msgs.msg import Motion
 from hand_motion_estimator_msgs.srv import GetHistogram, GetHistogramResponse
+
 from std_msgs.msg import Float32
 
 class HandMotionEstimator():
@@ -74,6 +75,8 @@ class HandMotionEstimator():
             "~output/overlay_text", OverlayText, queue_size=1)
         self.pub_movement = rospy.Publisher(
             "~output/movement", Float32, queue_size=1)
+        self.pub_motion = rospy.Publisher(
+            "~output/motion", Motion, queue_size=1)
 
         rospy.Service(
             "~save_histogram", GetHistogram, self.service_callback)
@@ -307,6 +310,12 @@ class HandMotionEstimator():
                         '\nmovement: ' + str(movement) + \
                         '\nlast segment motion: ' + self.segment_motion
         self.pub_overlay_text.publish(text_msg)
+
+        motion_msg = Motion()
+        motion_msg.header = boxes_msg.header
+        motion_msg.motion = self.segment_motion
+        self.pub_motion.publish(motion_msg)
+
         self.prev_move_state = move_state
 
 if __name__=='__main__':
