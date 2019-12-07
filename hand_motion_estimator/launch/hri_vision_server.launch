@@ -1,0 +1,10 @@
+<launch>
+  <arg name="input_face_class" default="/ssd_face_detector/output/class" />
+
+  <node name="hri_vision_server"
+        pkg="hand_motion_estimator" type="hri_vision_server.py"
+        output="screen">
+    <remap from="~input_face_class" to="$(arg input_face_class)"/>
+
+  </node>
+</launch>
