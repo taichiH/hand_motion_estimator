@@ -1,0 +1,6 @@
+string task
+uint32 observation_time
+---
+bool success
+string face_state
+string hand_motion

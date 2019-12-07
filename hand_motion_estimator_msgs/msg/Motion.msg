@@ -3,4 +3,5 @@ Header header
 
 # motion
 uint32 label
+float32 score
 string motion
