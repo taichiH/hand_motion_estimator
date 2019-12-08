@@ -67,22 +67,9 @@ class NeatnessEstimatorVisionServer():
         res = VisionServerResponse()
         data_corrector = CorrectData()
 
-        ## interrupt の前に物体の状態をdataにして、
-        ## その後行った操作をmotion_labelにする必要がある
-
-        # example
-        # data: (list color geometry group)
-        # item: 13 (mixjuice)
-
-        # get object appearance state
-        # data_corerctor.data = data
-
         hand_motion = ''
         while self.is_interrupt:
             hand_motion = self.hand_motion
-
-        ## call data corrector
-        # data_corerctor.motion_label = hand_motion
 
         res.hand_motion = hand_motion
         res.success = True
