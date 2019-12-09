@@ -114,19 +114,29 @@ class HriVisionServer():
                 res.success = False
                 return res
 
+        motion_count = {'rot':0, 'trans':0, 'nonmove':0, 'unknown':0}
         while self.is_interrupt:
             text_msg.text = 'interruption detected motion: {}'.format(
                 self.hand_motion)
             self.pub_interrupt_overlay_text.publish(text_msg)
             rospy.loginfo(text_msg.text)
             hand_motion = self.hand_motion
+            motion_count[hand_motion] += 1
+            rospy.sleep(sleep_interval)
 
-        text_msg.text = 'interruption ended, final motion {}'.format(
-            self.hand_motion)
+        max_count = 0
+        final_motion = ''
+        for m, c in zip(motion_count.keys(), motion_count.values()):
+            if c > max_count:
+                final_motion = m
+                max_count = c
+
+        text_msg.text = 'interruption ended\nfinal motion {}'.format(
+            final_motion)
         self.pub_interrupt_overlay_text.publish(text_msg)
         rospy.loginfo(text_msg.text)
 
-        res.hand_motion = hand_motion
+        res.hand_motion = final_motion
         res.success = True
         return res
 
