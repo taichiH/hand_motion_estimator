@@ -1,21 +1,28 @@
 #!/usr/bin/env python
 import numpy as np
 import rospy
+import tf
 import message_filters
 
 from jsk_rviz_plugins.msg import OverlayText
 from jsk_recognition_msgs.msg import BoundingBox, BoundingBoxArray
 from hand_motion_estimator_msgs.msg import Interruption
+from geometry_msgs.msg import Pose, Point, Quaternion
 
 class HandInterruptionChecker():
 
     def __init__(self):
+        self.broadcaster = tf.TransformBroadcaster()
+        self.listener = tf.TransformListener()
+
         self.interruption_pub = rospy.Publisher(
             '~output/interruption', Interruption, queue_size=1)
         self.overlay_text_pub = rospy.Publisher(
             "~output/overlay_text", OverlayText, queue_size=1)
+        self.expanded_box_pub = rospy.Publisher(
+            '~output/expanded_box', BoundingBox, queue_size=1)
 
-        self.expansion = rospy.get_param('~expansion', 0.03)
+        self.expansion = rospy.get_param('~expansion', 0.05)
         queue_size = rospy.get_param('~queue_size', 100)
         sub_hand_pose_boxes = message_filters.Subscriber(
             '~input/hand_pose_boxes', BoundingBoxArray, queue_size=queue_size)
@@ -34,18 +41,64 @@ class HandInterruptionChecker():
 
         sync.registerCallback(self.callback)
 
-    def is_interrupt(self, box, hand_pos):
-        if hand_pos[0] > box.pose.position.x - (box.dimensions.x * 0.5 + self.expansion) and\
-           hand_pos[0] < box.pose.position.x + (box.dimensions.x * 0.5 + self.expansion):
-            return True
-        if hand_pos[1] > box.pose.position.y - (box.dimensions.y * 0.5 + self.expansion) and\
-           hand_pos[1] < box.pose.position.y + (box.dimensions.y * 0.5 + self.expansion):
-            return True
-        if hand_pos[2] > box.pose.position.z - (box.dimensions.z * 0.5 + self.expansion) and\
-           hand_pos[2] < box.pose.position.z + (box.dimensions.z * 0.5 + self.expansion):
-            return True
+    def listen_transform(self, parent_frame, child_frame):
+        box = BoundingBox()
+        try:
+            self.listener.waitForTransform(
+                parent_frame, child_frame, rospy.Time(0), rospy.Duration(3.0))
+            (trans, rot) = self.listener.lookupTransform(
+                parent_frame, child_frame, rospy.Time(0))
 
-        return False
+            box.pose.position = Point(trans[0], trans[1], trans[2])
+            box.pose.orientation = Quaternion(rot[0], rot[1], rot[2], rot[3])
+            return box
+        except:
+            rospy.logwarn('cannot lookup transform')
+            return box
+
+    def transform_poses(self, pose, label, frame_id, parent):
+        self.broadcaster.sendTransform(
+            (pose.position.x, pose.position.y, pose.position.z),
+            (pose.orientation.x, pose.orientation.y, pose.orientation.z, pose.orientation.w),
+            rospy.Time.now(), label, frame_id)
+        box =  self.listen_transform(parent, label)
+        return box
+
+    def is_interrupt(self, box, hand_pos, frame_id):
+        expanded_box = box
+        expanded_box.dimensions.x = box.dimensions.x + (self.expansion * 2)
+        expanded_box.dimensions.y = box.dimensions.y + (self.expansion * 2)
+        expanded_box.dimensions.z = box.dimensions.z + (self.expansion * 2)
+
+        x_range = {'min': expanded_box.pose.position.x - (expanded_box.dimensions.x * 0.5),
+                   'max': expanded_box.pose.position.x + (expanded_box.dimensions.x * 0.5)}
+        y_range = {'min': expanded_box.pose.position.y - (expanded_box.dimensions.y * 0.5),
+                   'max': expanded_box.pose.position.y + (expanded_box.dimensions.y * 0.5)}
+        z_range = {'min': expanded_box.pose.position.z - (expanded_box.dimensions.z * 0.5),
+                   'max': expanded_box.pose.position.z + (expanded_box.dimensions.z * 0.5)}
+
+        transformed_finger_box = self.transform_poses(
+            Pose(Point(hand_pos[0], hand_pos[1], hand_pos[2]), Quaternion(0,0,0,1)),
+            'finger_pos',
+            frame_id,
+            box.header.frame_id)
+        ref_pos = [transformed_finger_box.pose.position.x,
+                   transformed_finger_box.pose.position.y,
+                   transformed_finger_box.pose.position.z]
+
+        interrupt_label = 0
+        if (x_range['min'] < ref_pos[0] and ref_pos[0] < x_range['max']) and\
+           (y_range['min'] < ref_pos[1] and ref_pos[1] < y_range['max']) and\
+           (z_range['min'] < ref_pos[2] and ref_pos[2] < z_range['max']):
+            interrupt_label = 1
+
+        expanded_box.label = interrupt_label
+        self.expanded_box_pub.publish(expanded_box)
+
+        if interrupt_label == 1:
+            return True
+        else:
+            return False
 
     def callback(self, hand_pose_boxes, object_boxes):
 
@@ -69,16 +122,15 @@ class HandInterruptionChecker():
                 min_distance = distance
                 nearest_box_indedx = i
 
-        result = self.is_interrupt(object_boxes.boxes[i], pos)
-
+        result = self.is_interrupt(object_boxes.boxes[i], pos, hand_pose_boxes.header.frame_id)
         text_msg = OverlayText()
         text_msg.text_size = 15
         text_msg.font = "DejaVu Sans Mono"
         text_msg.line_width = 1
         if result:
-            text_msg.text = "interrupt"
+            text_msg.text = "interrupt\ndist: {}".format(min_distance)
         else:
-            text_msg.text = "not interrupt"
+            text_msg.text = "not interrupt\ndist: {}".format(min_distance)
         self.overlay_text_pub.publish(text_msg)
 
         interruption_msg = Interruption()
