@@ -103,8 +103,6 @@ class HriVisionServer():
                 req.observation_time, timer)
             self.pub_interrupt_overlay_text.publish(text_msg)
 
-            print(self.is_interrupt)
-
             if timer >= req.observation_time:
                 rospy.loginfo(
                     'abort hand interrupt (observation time: %f sec)'
@@ -120,11 +118,13 @@ class HriVisionServer():
             text_msg.text = 'interruption detected motion: {}'.format(
                 self.hand_motion)
             self.pub_interrupt_overlay_text.publish(text_msg)
+            rospy.loginfo(text_msg.text)
             hand_motion = self.hand_motion
 
         text_msg.text = 'interruption ended, final motion {}'.format(
             self.hand_motion)
         self.pub_interrupt_overlay_text.publish(text_msg)
+        rospy.loginfo(text_msg.text)
 
         res.hand_motion = hand_motion
         res.success = True

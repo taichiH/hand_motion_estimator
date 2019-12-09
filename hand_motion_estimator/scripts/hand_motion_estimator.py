@@ -225,7 +225,7 @@ class HandMotionEstimator():
             # rospy.loginfo('flow_chunk: %s' %(self.state.not_buffered.name))
             return
         elif interpolated_chunk == self.state.error:
-            rospy.logerr('failed calc spline')
+            # rospy.logerr('failed calc spline')
             return
 
         movement = np.linalg.norm(interpolated_chunk[0] - interpolated_chunk[-1]) * 1000
