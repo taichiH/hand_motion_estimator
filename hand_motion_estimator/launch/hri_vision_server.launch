@@ -1,10 +1,13 @@
 <launch>
   <arg name="input_face_class" default="/ssd_face_detector/output/class" />
+  <arg name="input_hand_interruption" default="/hand_interruption_checker/output/interruption" />
+  <arg name="input_hand_motion" default="/hand_motion_estimator/output/motion" />
 
   <node name="hri_vision_server"
         pkg="hand_motion_estimator" type="hri_vision_server.py"
         output="screen">
     <remap from="~input_face_class" to="$(arg input_face_class)"/>
-
+    <remap from="~input_hand_interruption" to="$(arg input_hand_interruption)" />
+    <remap from="~input_hand_motion" to="$(arg input_hand_motion)" />
   </node>
 </launch>

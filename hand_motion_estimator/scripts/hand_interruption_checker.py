@@ -10,13 +10,12 @@ from hand_motion_estimator_msgs.msg import Interruption
 class HandInterruptionChecker():
 
     def __init__(self):
-        self.expansion = 0.05
-
         self.interruption_pub = rospy.Publisher(
             '~output/interruption', Interruption, queue_size=1)
         self.overlay_text_pub = rospy.Publisher(
             "~output/overlay_text", OverlayText, queue_size=1)
 
+        self.expansion = rospy.get_param('~expansion', 0.03)
         queue_size = rospy.get_param('~queue_size', 100)
         sub_hand_pose_boxes = message_filters.Subscriber(
             '~input/hand_pose_boxes', BoundingBoxArray, queue_size=queue_size)
@@ -70,13 +69,13 @@ class HandInterruptionChecker():
                 min_distance = distance
                 nearest_box_indedx = i
 
-        is_interrupt = self.is_interrupt(object_boxes.boxes[i], pos)
+        result = self.is_interrupt(object_boxes.boxes[i], pos)
 
         text_msg = OverlayText()
         text_msg.text_size = 15
         text_msg.font = "DejaVu Sans Mono"
         text_msg.line_width = 1
-        if is_interrupt:
+        if result:
             text_msg.text = "interrupt"
         else:
             text_msg.text = "not interrupt"
@@ -84,7 +83,7 @@ class HandInterruptionChecker():
 
         interruption_msg = Interruption()
         interruption_msg.header = hand_pose_boxes.header
-        interruption_msg.is_interrupt = is_interrupt
+        interruption_msg.is_interrupt = result
         interruption_msg.box = object_boxes.boxes[i]
         self.interruption_pub.publish(interruption_msg)
 

@@ -52,7 +52,6 @@ class HandPoseVisualizer():
         mask = np.zeros((rgb_image.shape[0], rgb_image.shape[1]), dtype=np.uint8)
 
         if len(hand_pose_msg.poses) == 0:
-            print('no hand detected')
             return
 
         # left and right hand

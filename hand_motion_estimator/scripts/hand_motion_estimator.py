@@ -304,8 +304,6 @@ class HandMotionEstimator():
                     max_count = self.motions_count[label]
                     self.segment_motion = label
                 self.motions_count[label] = 0
-            rospy.loginfo('last segment motion: %s' %(self.segment_motion))
-
         text_msg.text = 'sequence motion: ' + motion + \
                         '\nmovement: ' + str(movement) + \
                         '\nlast segment motion: ' + self.segment_motion
