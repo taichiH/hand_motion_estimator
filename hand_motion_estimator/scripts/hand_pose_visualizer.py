@@ -54,6 +54,7 @@ class HandPoseVisualizer():
         if len(hand_pose_msg.poses) == 0:
             return
 
+        px = (24 ** 24, 24 ** 24)
         # left and right hand
         for people_pose in zip(hand_pose_msg.poses):
             poses = people_pose[0].poses
@@ -64,15 +65,17 @@ class HandPoseVisualizer():
                 if limb != self.extract_joint:
                     continue
                 u, v = pose.position.x, pose.position.y
-                lt = (int(u - self.ksize), int(v - self.ksize))
-                rb = (int(u + self.ksize), int(v + self.ksize))
-                debug_limb = list(limb)[-2] + list(limb)[-1]
-                cv2.rectangle(debug_image, lt, rb, (255, 0, 0), 2)
-                cv2.putText(
-                    debug_image, debug_limb, lt, cv2.FONT_HERSHEY_SIMPLEX,
-                    0.3, (0,0,255), 1, cv2.LINE_AA)
+                if v < px[1]:
+                    px = (u,v)
 
-                mask[lt[1]:rb[1], lt[0]:rb[0]] = 255
+        lt = (int(px[0] - self.ksize), int(px[1] - self.ksize))
+        rb = (int(px[0] + self.ksize), int(px[1] + self.ksize))
+        debug_limb = list(limb)[-2] + list(limb)[-1]
+        cv2.rectangle(debug_image, lt, rb, (255, 0, 0), 2)
+        cv2.putText(
+            debug_image, debug_limb, lt, cv2.FONT_HERSHEY_SIMPLEX,
+        0.3, (0,0,255), 1, cv2.LINE_AA)
+        mask[lt[1]:rb[1], lt[0]:rb[0]] = 255
 
         debug_img_msg = self.cv_bridge.cv2_to_imgmsg(debug_image, 'bgr8')
         debug_img_msg.header = rgb_msg.header
