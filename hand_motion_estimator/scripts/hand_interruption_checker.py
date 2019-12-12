@@ -64,7 +64,7 @@ class HandInterruptionChecker():
         box =  self.listen_transform(parent, label)
         return box
 
-    def is_interrupt(self, box, hand_pos, frame_id):
+    def is_interrupt(self, box, hand_pos):
         expanded_box = box
         expanded_box.dimensions.x = box.dimensions.x + (self.expansion * 2)
         expanded_box.dimensions.y = box.dimensions.y + (self.expansion * 2)
@@ -77,19 +77,10 @@ class HandInterruptionChecker():
         z_range = {'min': expanded_box.pose.position.z - (expanded_box.dimensions.z * 0.5),
                    'max': expanded_box.pose.position.z + (expanded_box.dimensions.z * 0.5)}
 
-        transformed_finger_box = self.transform_poses(
-            Pose(Point(hand_pos[0], hand_pos[1], hand_pos[2]), Quaternion(0,0,0,1)),
-            'finger_pos',
-            frame_id,
-            box.header.frame_id)
-        ref_pos = [transformed_finger_box.pose.position.x,
-                   transformed_finger_box.pose.position.y,
-                   transformed_finger_box.pose.position.z]
-
         interrupt_label = 0
-        if (x_range['min'] < ref_pos[0] and ref_pos[0] < x_range['max']) and\
-           (y_range['min'] < ref_pos[1] and ref_pos[1] < y_range['max']) and\
-           (z_range['min'] < ref_pos[2] and ref_pos[2] < z_range['max']):
+        if (x_range['min'] < hand_pos[0] and hand_pos[0] < x_range['max']) and\
+           (y_range['min'] < hand_pos[1] and hand_pos[1] < y_range['max']) and\
+           (z_range['min'] < hand_pos[2] and hand_pos[2] < z_range['max']):
             interrupt_label = 1
 
         expanded_box.label = interrupt_label
@@ -111,18 +102,27 @@ class HandInterruptionChecker():
                         finger_box.pose.position.y,
                         finger_box.pose.position.z])
 
+        transformed_finger_box = self.transform_poses(
+            Pose(Point(pos[0], pos[1], pos[2]), Quaternion(0,0,0,1)),
+            'finger_pos',
+            hand_pose_boxes.header.frame_id,
+            object_boxes.header.frame_id)
+        ref_pos = [transformed_finger_box.pose.position.x,
+                   transformed_finger_box.pose.position.y,
+                   transformed_finger_box.pose.position.z]
+
         min_distance = 24 ** 24
         nearest_box_index = 0
         for i, box in enumerate(object_boxes.boxes):
             box_pos = np.array([box.pose.position.x,
                                 box.pose.position.y,
                                 box.pose.position.z])
-            distance = np.linalg.norm(pos - box_pos)
+            distance = np.linalg.norm(ref_pos - box_pos)
             if distance < min_distance:
                 min_distance = distance
-                nearest_box_indedx = i
+                nearest_box_index = i
 
-        result = self.is_interrupt(object_boxes.boxes[i], pos, hand_pose_boxes.header.frame_id)
+        result = self.is_interrupt(object_boxes.boxes[nearest_box_index], ref_pos)
         text_msg = OverlayText()
         text_msg.text_size = 15
         text_msg.font = "DejaVu Sans Mono"
