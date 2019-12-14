@@ -42,18 +42,25 @@ class HumanDetectionVisualizer():
     def callback(self, hand_img_msg, face_rect_msg, face_class_msg):
         hand_image = self.cv_bridge.imgmsg_to_cv2(hand_img_msg, 'bgr8')
         for rect, cls in zip(face_rect_msg.rects, face_class_msg.label_names):
+            color = (0,0,0)
+            if cls == 'toward':
+                color = (0,255,0)
+            else:
+                color = (0,0,255)
+
             hand_image = cv2.rectangle(
                 hand_image,
-                rect.x, rect,y, rect.x + rect.width, rect.y + rect.height,
-                (0,0,255), 2)
+                (int(rect.x), int(rect.y)),
+                (int(rect.x + rect.width), int(rect.y + rect.height)),
+                color, 3)
             cv2.putText(
                 hand_image,
                 cls,
-                rect.x, rect.y - 10,
-                cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0,0,0), 1, cv2.LINE_AA)
+                (rect.x, rect.y - 10),
+                cv2.FONT_HERSHEY_SIMPLEX, 1, color, 2, cv2.LINE_AA)
 
         human_img_msg = self.cv_bridge.cv2_to_imgmsg(hand_image, 'bgr8')
-        human_img_msg.header = rgb_msg.header
+        human_img_msg.header = human_img_msg.header
         self.human_img_pub.publish(human_img_msg)
 
 
