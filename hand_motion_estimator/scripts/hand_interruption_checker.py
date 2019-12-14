@@ -22,6 +22,7 @@ class HandInterruptionChecker():
         self.expanded_box_pub = rospy.Publisher(
             '~output/expanded_box', BoundingBox, queue_size=1)
 
+        self.interrupt_dist_thresh = rospy.get_param('~interrupt_dist_thresh', 0.1)
         self.expansion = rospy.get_param('~expansion', 0.05)
         queue_size = rospy.get_param('~queue_size', 100)
         sub_hand_pose_boxes = message_filters.Subscriber(
@@ -64,52 +65,48 @@ class HandInterruptionChecker():
         box =  self.listen_transform(parent, label)
         return box
 
-    def is_interrupt(self, box, hand_pos):
-        expanded_box = box
-        expanded_box.dimensions.x = box.dimensions.x + (self.expansion * 2)
-        expanded_box.dimensions.y = box.dimensions.y + (self.expansion * 2)
-        expanded_box.dimensions.z = box.dimensions.z + (self.expansion * 2)
+    def is_interrupt(self, box, finger_box):
+        frame_name = 'nearest_to_hand_object'
+        self.broadcaster.sendTransform(
+            (box.pose.position.x,
+             box.pose.position.y,
+             box.pose.position.z),
+            (box.pose.orientation.x,
+             box.pose.orientation.y,
+             box.pose.orientation.z,
+             box.pose.orientation.w),
+            rospy.Time.now(), frame_name, box.header.frame_id)
+        object_pos = np.array([box.pose.position.x,
+                               box.pose.position.y,
+                               box.pose.position.z])
 
-        x_range = {'min': expanded_box.pose.position.x - (expanded_box.dimensions.x * 0.5),
-                   'max': expanded_box.pose.position.x + (expanded_box.dimensions.x * 0.5)}
-        y_range = {'min': expanded_box.pose.position.y - (expanded_box.dimensions.y * 0.5),
-                   'max': expanded_box.pose.position.y + (expanded_box.dimensions.y * 0.5)}
-        z_range = {'min': expanded_box.pose.position.z - (expanded_box.dimensions.z * 0.5),
-                   'max': expanded_box.pose.position.z + (expanded_box.dimensions.z * 0.5)}
+        transformed_finger_box = self.transform_poses(
+            Pose(Point(finger_box.pose.position.x,
+                       finger_box.pose.position.y,
+                       finger_box.pose.position.z),
+                 Quaternion(0,0,0,1)),
+            'finger_pos',
+            finger_box.header.frame_id,
+            frame_name)
+        transformed_finger_pos = [transformed_finger_box.pose.position.x,
+                                  transformed_finger_box.pose.position.y,
+                                  transformed_finger_box.pose.position.z]
+        print(transformed_finger_pos)
 
-        interrupt_label = 0
-        if (x_range['min'] < hand_pos[0] and hand_pos[0] < x_range['max']) and\
-           (y_range['min'] < hand_pos[1] and hand_pos[1] < y_range['max']) and\
-           (z_range['min'] < hand_pos[2] and hand_pos[2] < z_range['max']):
-            interrupt_label = 1
-
-        expanded_box.label = interrupt_label
-        self.expanded_box_pub.publish(expanded_box)
-
-        if interrupt_label == 1:
-            return True
+        object_to_hand_dist = np.linalg.norm(object_pos - transformed_finger_pos)
+        print('object_to_hand_dist: ', object_to_hand_dist)
+        print('interrupt_dist_thresh: ', self.interrupt_dist_thresh)
+        if object_to_hand_dist > self.interrupt_dist_thresh:
+            return True, object_to_hand_dist
         else:
-            return False
+            return False, object_to_hand_dist
 
     def callback(self, hand_pose_boxes, object_boxes):
-
         if len(hand_pose_boxes.boxes) > 1:
             rospy.logwarn('this node requre input boxes size is 1')
             return
 
         finger_box = hand_pose_boxes.boxes[0]
-        pos = np.array([finger_box.pose.position.x,
-                        finger_box.pose.position.y,
-                        finger_box.pose.position.z])
-
-        transformed_finger_box = self.transform_poses(
-            Pose(Point(pos[0], pos[1], pos[2]), Quaternion(0,0,0,1)),
-            'finger_pos',
-            hand_pose_boxes.header.frame_id,
-            object_boxes.header.frame_id)
-        ref_pos = [transformed_finger_box.pose.position.x,
-                   transformed_finger_box.pose.position.y,
-                   transformed_finger_box.pose.position.z]
 
         min_distance = 24 ** 24
         nearest_box_index = 0
@@ -117,20 +114,25 @@ class HandInterruptionChecker():
             box_pos = np.array([box.pose.position.x,
                                 box.pose.position.y,
                                 box.pose.position.z])
+            ref_pos = np.array([finger_box.pose.position.x,
+                                finger_box.pose.position.y,
+                                finger_box.pose.position.z])
             distance = np.linalg.norm(ref_pos - box_pos)
             if distance < min_distance:
                 min_distance = distance
                 nearest_box_index = i
 
-        result = self.is_interrupt(object_boxes.boxes[nearest_box_index], ref_pos)
+        # print(object_boxes.boxes[nearest_box_index])
+        result, dist = self.is_interrupt(object_boxes.boxes[nearest_box_index], finger_box)
+
         text_msg = OverlayText()
         text_msg.text_size = 15
         text_msg.font = "DejaVu Sans Mono"
         text_msg.line_width = 1
         if result:
-            text_msg.text = "interrupt\ndist: {}".format(min_distance)
+            text_msg.text = "interrupt\ndist: {}".format(dist)
         else:
-            text_msg.text = "not interrupt\ndist: {}".format(min_distance)
+            text_msg.text = "not interrupt\ndist: {}".format(dist)
         self.overlay_text_pub.publish(text_msg)
 
         interruption_msg = Interruption()

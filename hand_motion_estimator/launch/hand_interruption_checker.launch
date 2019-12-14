@@ -1,6 +1,6 @@
 <launch>
   <arg name="hand_pose_boxes" default="hand_cluster_point_indices_decomposer/boxes" />
-  <arg name="object_boxes" default="/labeled_bounding_box_publisher_aligned/output/labeled_instance_boxes" />
+  <arg name="object_boxes" default="/labeled_bounding_box_publisher/output/labeled_instance_boxes" />
   <arg name="expansion" default="0.05" />
 
   <node name="hand_interruption_checker"
