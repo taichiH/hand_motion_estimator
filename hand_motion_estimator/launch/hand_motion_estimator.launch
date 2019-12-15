@@ -1,11 +1,11 @@
 <launch>
 
-  <arg name="hand_pose_box" default="hand_cluster_point_indices_decomposer/boxes" />
+  <arg name="hand_pose_box" default="/hand_interruption_checker/output/transformed_boxes" />
   <arg name="angle_buf_size" default="7" />
   <arg name="chunk_size" default="4" />
   <arg name="use_pca" default="false" />
   <arg name="pca_frame" default="4" />
-  <arg name="movement_thresh" default="15" doc="[mm]" />
+  <arg name="movement_thresh" default="2.9" doc="[mm]" />
   <arg name="model" default="mlp" doc="{mlp, random_forest}" />
   <arg name="interpolation_scale" default="3" />
 

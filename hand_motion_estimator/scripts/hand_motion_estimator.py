@@ -40,6 +40,7 @@ class HandMotionEstimator():
                               self.motion_labels[2] : 0}
         self.segment_motion = ''
 
+        self.interpolate_flow = rospy.get_param('~interpolate_flow', False)
         self.chunk_size = rospy.get_param('~chunk_size', 5)
         self.bin_size = rospy.get_param('~bin_size', 18)
         self.movement_thresh = rospy.get_param('~movement_thresh', 15)
@@ -53,7 +54,7 @@ class HandMotionEstimator():
         self.vec_pair = []
 
         self.pca = PCA()
-        self.base_axis = np.array([0,0,1])
+        self.base_axis = np.array([1,0,0])
 
         self.motion_lst = ['rot', 'trans', 'other']
         self.data_path = rospy.get_param(
@@ -133,13 +134,19 @@ class HandMotionEstimator():
         return list(interpolated_chunk)
 
     def make_flow_chunk(self, pos):
+
         if len(self.flow_chunk) <= self.chunk_size:
             self.flow_chunk.append(pos)
             return self.state.not_buffered
         else:
             self.flow_chunk.pop(0)
             self.flow_chunk.append(pos)
-            interpolated_chunk = self.spline_interpolate(np.array(self.flow_chunk))
+
+            interpolated_chunk = None
+            if self.interpolate_flow:
+                interpolated_chunk = self.spline_interpolate(np.array(self.flow_chunk))
+            else:
+                interpolated_chunk = self.flow_chunk
 
             return interpolated_chunk
 
@@ -225,13 +232,31 @@ class HandMotionEstimator():
             # rospy.loginfo('flow_chunk: %s' %(self.state.not_buffered.name))
             return
         elif interpolated_chunk == self.state.error:
-            # rospy.logerr('failed calc spline')
+            # rospy.logwarn('failed calc spline')
             return
 
-        movement = np.linalg.norm(interpolated_chunk[0] - interpolated_chunk[-1]) * 1000
+        pca_vec = self.calc_pca(interpolated_chunk)
+        max_element = 0
+        idx = 0
+        for i, e in enumerate(pca_vec):
+            if abs(e) > max_element:
+                max_element = abs(e)
+                idx = i
+
+        most_move_axis = ['x', 'y', 'z'][idx]
+
+        # last frame and last last frame movement
+        movement = np.linalg.norm(
+            interpolated_chunk[-1] - interpolated_chunk[-2]) * 1000
         self.pub_movement.publish(data=movement)
 
+
         motion = ''
+        if most_move_axis == 'x':
+            motion = 'trans'
+        else:
+            motion = 'rot'
+
         if movement < self.movement_thresh:
             move_state = self.move_state.nonmove
             motion = 'nonmove'
@@ -239,57 +264,9 @@ class HandMotionEstimator():
         else:
             move_state = self.move_state.move
 
-            angle_buf = self.make_angle_buffer(interpolated_chunk, False)
-            cross_angle_buf = self.make_angle_buffer(interpolated_chunk, True)
-            histogram = self.make_histogram(angle_buf)
-            cross_histogram = self.make_histogram(cross_angle_buf)
-            x = np.arange(0, len(histogram), 1)
-            y = norm.pdf(x, int(len(histogram) / 2), 1)
-            hist_dist = dist.mahalanobis(y, np.array(histogram), np.eye(len(histogram)))
-            cross_hist_dist = dist.mahalanobis(y, np.array(cross_histogram), np.eye(len(histogram)))
-
-            if hist_dist < cross_hist_dist:
-                motion = self.motion_labels[1]
-            else:
-                motion = self.motion_labels[0]
-
-            ##### visualize #####
-            plt.cla()
-            plt.title("normal histogram")
-            plt.bar([i for i in range(np.array(histogram).shape[0])], np.array(histogram))
-            fig = plt.gcf()
-            fig.canvas.draw()
-            w, h = fig.canvas.get_width_height()
-            histogram_img = np.fromstring(fig.canvas.tostring_rgb(), dtype=np.uint8)
-            fig.clf()
-            histogram_img.shape = (h, w, 3)
-            plt.close()
-
-            plt.cla()
-            plt.title("cross histogram")
-            plt.bar([i for i in range(np.array(cross_histogram).shape[0])],
-                    np.array(cross_histogram))
-            fig = plt.gcf()
-            fig.canvas.draw()
-            w, h = fig.canvas.get_width_height()
-            cross_histogram_img = np.fromstring(fig.canvas.tostring_rgb(), dtype=np.uint8)
-            fig.clf()
-            cross_histogram_img.shape = (h, w, 3)
-            plt.close()
-
-            try:
-                histogram_msg = self.cv_bridge.cv2_to_imgmsg(histogram_img, "rgb8")
-                cross_histogram_msg = self.cv_bridge.cv2_to_imgmsg(
-                    cross_histogram_img, "rgb8")
-            except Exception as e:
-                rospy.logerr("Failed to convert bbox image: %s" % str(e))
-                return
-
-            histogram_msg.header = boxes_msg.header
-            cross_histogram_msg.header = boxes_msg.header
-            self.pub_histogram_image.publish(histogram_msg)
-            self.pub_cross_histogram_image.publish(cross_histogram_msg)
-            ##### visualize #####
+        # print('movement: ', movement)
+        # print('most moved axis is %s' %(most_move_axis))
+        # print('motion: ', motion)
 
         max_count = 0
         self.motions_count[motion] += 1

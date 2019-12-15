@@ -7,7 +7,7 @@ import message_filters
 from jsk_rviz_plugins.msg import OverlayText
 from jsk_recognition_msgs.msg import BoundingBox, BoundingBoxArray
 from hand_motion_estimator_msgs.msg import Interruption
-from geometry_msgs.msg import Pose, Point, Quaternion, PoseArray
+from geometry_msgs.msg import Pose, Point, Quaternion
 
 import time
 
@@ -23,14 +23,15 @@ class HandInterruptionChecker():
         self.object_boxes = BoundingBoxArray()
         self.object_callback_called = False
 
+        self.prev_box = BoundingBox()
+        self.prev_interruption = False
+
         self.interruption_pub = rospy.Publisher(
             '~output/interruption', Interruption, queue_size=1)
         self.overlay_text_pub = rospy.Publisher(
             "~output/overlay_text", OverlayText, queue_size=1)
-        self.expanded_box_pub = rospy.Publisher(
-            '~output/expanded_box', BoundingBox, queue_size=1)
-        self.poses_pub = rospy.Publisher(
-            '~output/poses', PoseArray, queue_size=1)
+        self.transformed_boxes_pub = rospy.Publisher(
+            '~output/transformed_boxes', BoundingBoxArray, queue_size=1)
 
         rospy.Subscriber(
             "~input/hand_pose_boxes", BoundingBoxArray, self.hand_callback)
@@ -53,7 +54,7 @@ class HandInterruptionChecker():
             rospy.logwarn('cannot lookup transform')
             return box
 
-    def is_interrupt(self, object_box, finger_box):
+    def transform_box(self, object_box, finger_box):
         object_frame = 'nearest_to_hand_object'
         self.broadcaster.sendTransform(
             (object_box.pose.position.x,
@@ -72,22 +73,13 @@ class HandInterruptionChecker():
             (finger_box.pose.position.x,
              finger_box.pose.position.y,
              finger_box.pose.position.z),
-            (finger_box.pose.orientation.x,
-             finger_box.pose.orientation.y,
-             finger_box.pose.orientation.z,
-             finger_box.pose.orientation.w),
+            (1, 0, 0, 0),
             rospy.Time.now(),
             finger_frame,
             finger_box.header.frame_id)
 
         box = self.listen_transform(object_frame, finger_frame)
-        pose_array = PoseArray()
-        pose_array.poses.append(box.pose)
-        pose_array.header = finger_box.header
-        self.poses_pub.publish(pose_array)
-
-        return True
-
+        return box
 
     def object_callback(self, object_boxes):
         self.object_callback_called = True
@@ -122,24 +114,42 @@ class HandInterruptionChecker():
         if min_distance < self.interrupt_dist_thresh:
             interruption = True
 
-        result = self.is_interrupt(self.object_boxes.boxes[nearest_box_index], finger_box)
+        cur_box = None
+        if interruption and self.prev_interruption:
+            cur_box = self.prev_box
+        else:
+            cur_box = self.object_boxes.boxes[nearest_box_index]
 
+        transformed_box = self.transform_box(cur_box, finger_box)
+
+        ### publishers
+
+        ###
         text_msg = OverlayText()
         text_msg.text_size = 15
         text_msg.font = "DejaVu Sans Mono"
         text_msg.line_width = 1
-        if result:
+        if interruption:
             text_msg.text = "interrupt\ndist: {}".format(min_distance)
         else:
             text_msg.text = "not interrupt\ndist: {}".format(min_distance)
         self.overlay_text_pub.publish(text_msg)
 
+        ###
         interruption_msg = Interruption()
         interruption_msg.header = hand_pose_boxes.header
         interruption_msg.is_interrupt = interruption
-        interruption_msg.box = self.object_boxes.boxes[i]
+        interruption_msg.box = transformed_box
         self.interruption_pub.publish(interruption_msg)
 
+        ###
+        boxes = BoundingBoxArray()
+        boxes.header = transformed_box.header
+        boxes.boxes.append(transformed_box)
+        self.transformed_boxes_pub.publish(boxes)
+
+        self.prev_interruption = interruption
+        self.prev_box = cur_box
 
 if __name__=='__main__':
     rospy.init_node('hand_interruption_checker')
