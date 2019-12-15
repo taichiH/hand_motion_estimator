@@ -7,7 +7,9 @@ import message_filters
 from jsk_rviz_plugins.msg import OverlayText
 from jsk_recognition_msgs.msg import BoundingBox, BoundingBoxArray
 from hand_motion_estimator_msgs.msg import Interruption
-from geometry_msgs.msg import Pose, Point, Quaternion
+from geometry_msgs.msg import Pose, Point, Quaternion, PoseArray
+
+import time
 
 class HandInterruptionChecker():
 
@@ -15,32 +17,26 @@ class HandInterruptionChecker():
         self.broadcaster = tf.TransformBroadcaster()
         self.listener = tf.TransformListener()
 
+        self.interrupt_dist_thresh = rospy.get_param('~interrupt_dist_thresh', 0.1)
+        self.expansion = rospy.get_param('~expansion', 0.05)
+
+        self.object_boxes = BoundingBoxArray()
+        self.object_callback_called = False
+
         self.interruption_pub = rospy.Publisher(
             '~output/interruption', Interruption, queue_size=1)
         self.overlay_text_pub = rospy.Publisher(
             "~output/overlay_text", OverlayText, queue_size=1)
         self.expanded_box_pub = rospy.Publisher(
             '~output/expanded_box', BoundingBox, queue_size=1)
+        self.poses_pub = rospy.Publisher(
+            '~output/poses', PoseArray, queue_size=1)
 
-        self.interrupt_dist_thresh = rospy.get_param('~interrupt_dist_thresh', 0.1)
-        self.expansion = rospy.get_param('~expansion', 0.05)
-        queue_size = rospy.get_param('~queue_size', 100)
-        sub_hand_pose_boxes = message_filters.Subscriber(
-            '~input/hand_pose_boxes', BoundingBoxArray, queue_size=queue_size)
-        sub_object_boxes = message_filters.Subscriber(
-            '~input/object_boxes', BoundingBoxArray, queue_size=queue_size)
-        self.subs = [sub_hand_pose_boxes, sub_object_boxes]
+        rospy.Subscriber(
+            "~input/hand_pose_boxes", BoundingBoxArray, self.hand_callback)
+        rospy.Subscriber(
+            "~input/object_boxes", BoundingBoxArray, self.object_callback)
 
-        self.approximate_sync = rospy.get_param('~approximate_sync', True)
-        if self.approximate_sync:
-            slop = rospy.get_param('~slop', 0.1)
-            sync = message_filters.ApproximateTimeSynchronizer(
-                fs=self.subs, queue_size=queue_size, slop=slop)
-        else:
-            sync = message_filters.TimeSynchronizer(
-                fs=self.subs, queue_size=queue_size)
-
-        sync.registerCallback(self.callback)
 
     def listen_transform(self, parent_frame, child_frame):
         box = BoundingBox()
@@ -57,60 +53,60 @@ class HandInterruptionChecker():
             rospy.logwarn('cannot lookup transform')
             return box
 
-    def transform_poses(self, pose, label, frame_id, parent):
+    def is_interrupt(self, object_box, finger_box):
+        object_frame = 'nearest_to_hand_object'
         self.broadcaster.sendTransform(
-            (pose.position.x, pose.position.y, pose.position.z),
-            (pose.orientation.x, pose.orientation.y, pose.orientation.z, pose.orientation.w),
-            rospy.Time.now(), label, frame_id)
-        box =  self.listen_transform(parent, label)
-        return box
+            (object_box.pose.position.x,
+             object_box.pose.position.y,
+             object_box.pose.position.z),
+            (object_box.pose.orientation.x,
+             object_box.pose.orientation.y,
+             object_box.pose.orientation.z,
+             object_box.pose.orientation.w),
+            rospy.Time.now(),
+            object_frame,
+            object_box.header.frame_id)
 
-    def is_interrupt(self, box, finger_box):
-        frame_name = 'nearest_to_hand_object'
+        finger_frame = 'finger'
         self.broadcaster.sendTransform(
-            (box.pose.position.x,
-             box.pose.position.y,
-             box.pose.position.z),
-            (box.pose.orientation.x,
-             box.pose.orientation.y,
-             box.pose.orientation.z,
-             box.pose.orientation.w),
-            rospy.Time.now(), frame_name, box.header.frame_id)
-        object_pos = np.array([box.pose.position.x,
-                               box.pose.position.y,
-                               box.pose.position.z])
+            (finger_box.pose.position.x,
+             finger_box.pose.position.y,
+             finger_box.pose.position.z),
+            (finger_box.pose.orientation.x,
+             finger_box.pose.orientation.y,
+             finger_box.pose.orientation.z,
+             finger_box.pose.orientation.w),
+            rospy.Time.now(),
+            finger_frame,
+            finger_box.header.frame_id)
 
-        transformed_finger_box = self.transform_poses(
-            Pose(Point(finger_box.pose.position.x,
-                       finger_box.pose.position.y,
-                       finger_box.pose.position.z),
-                 Quaternion(0,0,0,1)),
-            'finger_pos',
-            finger_box.header.frame_id,
-            frame_name)
-        transformed_finger_pos = [transformed_finger_box.pose.position.x,
-                                  transformed_finger_box.pose.position.y,
-                                  transformed_finger_box.pose.position.z]
-        print(transformed_finger_pos)
+        box = self.listen_transform(object_frame, finger_frame)
+        pose_array = PoseArray()
+        pose_array.poses.append(box.pose)
+        pose_array.header = finger_box.header
+        self.poses_pub.publish(pose_array)
 
-        object_to_hand_dist = np.linalg.norm(object_pos - transformed_finger_pos)
-        print('object_to_hand_dist: ', object_to_hand_dist)
-        print('interrupt_dist_thresh: ', self.interrupt_dist_thresh)
-        if object_to_hand_dist > self.interrupt_dist_thresh:
-            return True, object_to_hand_dist
-        else:
-            return False, object_to_hand_dist
+        return True
 
-    def callback(self, hand_pose_boxes, object_boxes):
+
+    def object_callback(self, object_boxes):
+        self.object_callback_called = True
+        self.object_boxes = object_boxes
+
+    def hand_callback(self, hand_pose_boxes):
         if len(hand_pose_boxes.boxes) > 1:
             rospy.logwarn('this node requre input boxes size is 1')
+            return
+
+        if not self.object_callback_called:
+            rospy.loginfo('wait for object_callback')
             return
 
         finger_box = hand_pose_boxes.boxes[0]
 
         min_distance = 24 ** 24
         nearest_box_index = 0
-        for i, box in enumerate(object_boxes.boxes):
+        for i, box in enumerate(self.object_boxes.boxes):
             box_pos = np.array([box.pose.position.x,
                                 box.pose.position.y,
                                 box.pose.position.z])
@@ -122,23 +118,26 @@ class HandInterruptionChecker():
                 min_distance = distance
                 nearest_box_index = i
 
-        # print(object_boxes.boxes[nearest_box_index])
-        result, dist = self.is_interrupt(object_boxes.boxes[nearest_box_index], finger_box)
+        interruption = False
+        if min_distance < self.interrupt_dist_thresh:
+            interruption = True
+
+        result = self.is_interrupt(self.object_boxes.boxes[nearest_box_index], finger_box)
 
         text_msg = OverlayText()
         text_msg.text_size = 15
         text_msg.font = "DejaVu Sans Mono"
         text_msg.line_width = 1
         if result:
-            text_msg.text = "interrupt\ndist: {}".format(dist)
+            text_msg.text = "interrupt\ndist: {}".format(min_distance)
         else:
-            text_msg.text = "not interrupt\ndist: {}".format(dist)
+            text_msg.text = "not interrupt\ndist: {}".format(min_distance)
         self.overlay_text_pub.publish(text_msg)
 
         interruption_msg = Interruption()
         interruption_msg.header = hand_pose_boxes.header
-        interruption_msg.is_interrupt = result
-        interruption_msg.box = object_boxes.boxes[i]
+        interruption_msg.is_interrupt = interruption
+        interruption_msg.box = self.object_boxes.boxes[i]
         self.interruption_pub.publish(interruption_msg)
 
 
