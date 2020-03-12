@@ -39,4 +39,8 @@ sample launch
 roslaunch hand_motion_estimator sample_hand_motion_estimator.launch interruption_check:=true
 ```
 
+## method
+![image not foud](./hand_motion_estimator/images/spline_3d.png)
+
+
 ![translation_motion_estimation](https://user-images.githubusercontent.com/22497720/70332308-a0c16500-1884-11ea-87b5-544bde2f385e.gif)
